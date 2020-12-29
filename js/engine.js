@@ -1,296 +1,348 @@
-class Reversi {
+class Engine extends Reversi {
+  constructor(dims) {
+    super(dims);
+    this.display = new Display(dims);
+    this.darkPlayer = null;
+    this.lightPlayer = null;
+    this.darkDepth = 0;
+    this.lightDepth = 0;
+    this.aiDelay = 20; //miliseconds
+    this.useBook = true;
+    this.thinking = false;
+    this.initGameTable();
+    this.initDepthSelect();
+    this.initPlayerSelect();
+    this.initOpeningLabel();
+    this.initAnalysisTable();
+    this.loadOpenings(this.callback);
+  }
 
-    constructor(dims) {
-        this.board = new Board(dims)
-        this.display = new Display(dims)
-        this.gameRunning = true
-        this.blackTurn = true
-        this.missedTurns = 0
-        this.humanPlayers = []
-        // this.blackPlayer = document.getElementById("engineSelect").value
-        this.blackPlayer = minimax
-        this.redPlayer = minimax
-        this.aiDelay = 0 //miliseconds
-        this.freeTiles = dims**2 - 4
+  initDepthSelect() {
+    // sets the depth select radio buttons to
+    // update the relevant depth attribute
+
+    var self = this;
+    this.darkDepth = 1;
+    console.log("intitialising depth selection");
+    var darkselect = $("#darkdepthSelector .btn");
+    darkselect[0].click();
+    darkselect.on("click", function(event) {
+      let darkdepth = $(this)
+        .find("input")
+        .val();
+      self.darkDepth = Number(darkdepth);
+    });
+    this.lightDepth = 1;
+    var lightselect = $("#lightdepthSelector .btn");
+    lightselect[0].click();
+    lightselect.on("click", function(event) {
+      let lightdepth = $(this)
+        .find("input")
+        .val();
+      self.lightDepth = Number(lightdepth);
+    });
+  }
+
+  initPlayerSelect() {
+    // sets the player select radio buttons to
+    // update the relevant player attribute
+
+    var self = this;
+    this.darkPlayer = "human";
+    console.log("intitialising player selection");
+    var darkselect = $("#darkPlayerSelector .btn");
+    darkselect[0].click();
+    darkselect.on("click", function(event) {
+      let darkplayer = $(this)
+        .find("input")
+        .val();
+      self.darkPlayer = darkplayer;
+    });
+    this.lightPlayer = "human";
+    var lightselect = $("#lightPlayerSelector .btn");
+    lightselect[0].click();
+    lightselect.on("click", function(event) {
+      let lightplayer = $(this)
+        .find("input")
+        .val();
+      self.lightPlayer = lightplayer;
+    });
+  }
+
+  updateOpeningLabel() {
+    // updates the label displaying the opening being played
+
+    let label = document.getElementById("openingLabel");
+    let possibleOpenings = this.findPossibleOpenings(this.gameHistory);
+    let currentOpening = this.getCompletedOpening(possibleOpenings);
+    if (typeof currentOpening[0][1] == "string") {
+      label.innerHTML = currentOpening[0][1];
     }
+  }
 
-    draw() {
-        this.display.drawBoard(this.board)
+  updateGameTable() {
+    // updates the game table after a move is played
+
+    let table = document.getElementById("moveHistory");
+    if (this.gameHistory.length % 4 === 0) {
+      console.log(table.rows[0]);
+      let row = table.rows[table.rows.length - 1];
+      let cell = row.cells[1];
+      console.log(row);
+      cell.innerHTML = this.gameHistory.slice(-2);
+    } else {
+      let row = table.insertRow(-1);
+      let cell1 = row.insertCell(0);
+      cell1.innerHTML = this.gameHistory.slice(-2);
+      row.insertCell(1);
     }
+  }
 
-    turnToken() {
-        if (this.blackTurn) return 1
-        else return 2
+  initGameTable() {
+    // clears game table ready for new game
+
+    let table = document.getElementById("moveHistory");
+    let len = table.rows.length;
+    for (let i = 0; i < len; i++) {
+      table.deleteRow(0);
     }
+  }
 
-    gameEnded() {
-        if (this.findLegalMoves(this.board, 1) == false && this.findLegalMoves(this.board, 2) == false) {
-            console.log("ended")
-            return true
-        } else {
-            console.log("not ended")
-            return false
-        }
-        // console.log("missed", this.missedTurns)
+  initAnalysisTable() {
+    var table = document.getElementById("analysisTable");
+    var len = table.rows.length;
+    for (let i = 0; i < len - 1; i++) {
+      table.deleteRow(1);
     }
+  }
 
-    insertToken(cell, field) {
-        console.log("cell", cell)
-        // console.log(JSON.parse(JSON.stringify(field)))
-        var [col, row] = cell
-        // console.log(col, row)
-        // console.log("field", field)
-        // console.log("legals", this.findLegalMoves(this.board))
-        if (JSON.stringify(this.findLegalMoves(this.board)).includes(cell.reverse())) {
-            var success = true
-            field[row][col] = this.turnToken()
-            // console.log(JSON.parse(JSON.stringify(field)))
-        } else {
-            success = false 
-            console.log("illegal")
+  initOpeningLabel() {
+    //initialises label displaying opening being played
+
+    let label = document.getElementById("openingLabel");
+    label.innerText = "Opening";
+  }
+
+  draw() {
+    // wrapper for the drawBoard() method
+
+    this.display.drawBoard(this.board);
+  }
+
+  handleTurn() {
+    // is called every turn and handles
+    // the logic of a single turn
+
+    if (this.gameEnded(this.board.field)) {
+      this.gameRunning = false;
+      this.handlegameEnd();
+    } else {
+      // if game is still running
+      if (this.findLegalMoves(this.board.field) == false) {
+        this.handlePass();
+        $("#passNotification").show();
+        var passLabel = document.getElementById("passLabel");
+        var playerText = this.darkTurn ? "Light" : "Dark";
+        passLabel.innerText = playerText + " is forced to pass";
+        this.updateGameTable();
+        this.display.showLegals(this);
+        var self = this;
+        setTimeout(function() {
+          $("#passNotification").hide();
+          self.handleTurn(); //
+        }, 1000);
+      } else {
+        // if there are legal moves available
+        var activePlayer = this.darkTurn
+          ? this.darkPlayer
+          : this.lightPlayer;
+        console.log("activeplayer: ", activePlayer);
+        if (activePlayer === "human") {
+          var self = this;
+          $("#myCanvas").one("mousedown", function() {
+            self.processHumanMove();
+          });
+          console.log("listening for input");
+        } else if (!this.thinking) {
+          //if computer player
+          var self = this;
+          this.thinking = true;
+          console.log("processing CompMove");
+          setTimeout(function() {
+            self.processCompMove();
+          }, this.aiDelay);
         }
-    // console.log("success", success)
-    return success
+      }
     }
+  }
 
-    findLegalMoves(board, player=null) {
-        if (player == null) player = this.turnToken()
-        let legals = []
-        let friendlyCells = []
-        // console.log(friendlyCells)
-        let enemyCells = []
-        // console.log("enemy: ", enemyCells)
-        for (i=0; i < board.rows; i++) {
-            for (j=0; j < board.cols; j++) {
-                // console.log([i,j])
-                if (board.field[i][j] == player) {
-                    friendlyCells.push([i,j])
-                    // console.log(friendlyCells)
-                    // friendlyCells.map(console.log)
-                } else if (board.field[i][j] ==  3-player) {
-                    enemyCells.push([i,j])
-                    // console.log("enemy: ", enemyCells)
-                }
-            }
-        }
-        var surrounds = []
-        for (i = -1; i < 2; i++) {
-            for (j = -1; j < 2; j++) {
-                if (Math.abs(i) != Math.abs(j)) {
-                    surrounds.push([i,j])
-                }
-            }
-        }
-        var totalOccupied = friendlyCells.concat(enemyCells)
-        for (var cell of totalOccupied) {
-            for (var s of surrounds) {
-                var neighbour = []
-                for (var i = 0; i <= 1; i++) {
-                    neighbour.push(cell[i] + s[i])
-                }
-                var legal = true
-                if (JSON.stringify(totalOccupied).includes(neighbour)) legal = false
-                for (var ordinate of neighbour) {
-                    if (!(0 <= ordinate && ordinate < board.cols)) legal = false
-                    }
-                if (legal) legals.push(neighbour)
-                }
-            }
-        // console.log("maybe legals", legals)
-        var trueLegals = [], directions = []
-        for (var i = -1; i < 2; i++) {
-            for (var j=-1; j<2; j++) {
-                directions.push([i, j])
-            }
-        }
-        directions.splice(4, 1) //removes [0, 0]
-        for (var move of legals) {
-            // console.log(legals)
-            // console.log("move", move)
-            var valid = false
-            for (var d of directions) {
-                // console.log(d)
-                var testedCell = [move[1], move[0]]
-                // console.log("restart", testedCell)
-                var runLength = 0
-                while (true) {
-                    // console.log("tested cell", testedCell)
-                    var testedCell = testedCell.map(function(a, b) {return a+d[b]})
-                    // console.log("next tested cell", testedCell)
-                    if (this.onBoard(testedCell)) {
-                        if (board.field[testedCell[1]][testedCell[0]] == 3-player) {
-                            runLength++
-                            // console.log("run", runLength)
-                        } else if (board.field[testedCell[1]][testedCell[0]] == player) {
-                            if (runLength > 0) {
-                                valid = true
-                                // console.log("gotem")
-                            }
-                            break
-                        } else break
-                    } else break
-            
-                }
-            }
-            if (valid) trueLegals.push(move)
-        }
-        // console.log(trueLegals)
-        return trueLegals
+  initiateMinimax() {
+    // constructs a list of parameters to be
+    // passed to the minimax worker and then
+    // initiates the creation of the worker
+
+    var depth = this.darkTurn ? this.darkDepth : this.lightDepth;
+    if (this.freeTiles <= 10) {
+      depth = 10;
     }
+    var fieldCopy = JSON.parse(JSON.stringify(this.board.field));
+    var workerMessage = [
+      depth,
+      fieldCopy,
+      this.turnToken(),
+      this.freeTiles,
+      this.board.rows
+    ];
+    this.createMinimaxWorker(workerMessage);
+  }
 
-    onBoard(cell) {
-        var valid = true
-        for (var coord of cell) {
-            valid = valid && 0 <= coord && coord < this.board.cols
-        }
-        return valid
+  createMinimaxWorker(workerMessage) {
+    // creates a minimax web worker with a
+    // message. This worker asynchronously
+    // performas the minimax algorithm
+
+    var self = this;
+    var w = new Worker("js/minimaxWorker.js");
+    w.postMessage(workerMessage);
+    w.onmessage = function(event) {
+      var result = event.data;
+      var move = result.move;
+      if (typeof self != "undefined") {
+        self.executeMove(move);
+      }
+      w.terminate(); // delete web worker
+      w = undefined; // and remove the reference
+    };
+  }
+
+  processCompMove() {
+    // is called by handleTurn() if it is the
+    // computers turn to move and handles the process
+    // of deciding on a computer move
+
+    var executed = false;
+    if (this.gameHistory == "") {
+      var move = this.getRandomMove();
+      executed = true;
+      this.executeMove(move);
+    } else if (this.inBook && this.useBook) {
+      var openings = this.checkInBook();
+      if (this.inBook) {
+        var move = this.getBookMove(openings);
+        executed = true;
+        this.executeMove(move);
+      }
     }
-
-    flipTokens(field, cell) {
-        // console.log("from flip", cell, JSON.parse(JSON.stringify(field)))
-        var directions = []
-        for (var i = -1; i < 2; i++) {
-            for (var j = -1; j < 2; j++) {
-                directions.push([i,j])
-            }
-        }
-        directions.splice(4, 1) //removes [0, 0]
-        // console.log("directions", directions)
-        var runs = []
-        for (var d of directions) {
-            var run = [],
-                testedCell = cell,
-                ended = false, valid = true
-            while (!ended) {
-                run.push(testedCell)
-                testedCell = testedCell.map(function(a, b) {return a+d[b]})
-                if (!this.onBoard(testedCell)) {
-                    valid = false
-                    break
-                }
-                if (field[testedCell[1]][testedCell[0]] != 3-this.turnToken()) {
-                    ended = true
-                    // console.log("ended", this.constructor.humanForm(testedCell))
-                }
-            }
-            // console.log("run", run)
-            // console.log(field[testedCell[1]][testedCell[0]])
-            if (valid && field[testedCell[1]][testedCell[0]] == this.turnToken()) {
-                runs.push(run)
-                // console.log("ya")
-            }
-        }
-        // console.log("runs", runs)
-        for (var r of runs) {
-            for (var tile of r) {
-                // console.log("cell", tile)
-                field[tile[1]][tile[0]] = this.turnToken()
-            }
-        }
-    }   
-
-    countTokens(board) {
-        var black = 0, red = 0
-        for (var i = 0; i < board.rows; i++) {
-            for (var j = 0; j < board.cols; j++) {
-                if (board.field[i][j] == 1) black++
-                else if (board.field[i][j] == 2) red++
-            }
-        }
-        return [black, red]
+    if (!executed) {
+      this.initiateMinimax();
     }
+  }
 
-    handleTurn() {
-        if (this.gameEnded()) {
-            this.gameRunning = false
-            this.handlegameEnd()
-        } else {
-            if (this.findLegalMoves(this.board) == false) {
-                this.missedTurns++
-                this.blackTurn = !(this.blackTurn)
-                this.handleTurn()
-            } else {
-                var activePlayer = (this.blackTurn ? this.blackPlayer : this.redPlayer) 
-                if (activePlayer === "human") {
-                    document.getElementById("myCanvas").addEventListener("mousedown", this.processMove)
-                }
-                else { //if computer player
-                    setTimeout(function() {reversi.processCompMove(activePlayer)}, this.aiDelay)
-                }
-            }
+  executeMove(move) {
+    // handles the execution of a move and updates
+    // various game related attributes accordingly
+
+    console.log("executing", move);
+    if (this.insertToken(move)) {
+      this.flipTokens(this.board.field, move, this.turnToken());
+      this.display.ctx.clearRect(
+        0,
+        0,
+        this.display.canvas.width,
+        this.display.canvas.height
+      );
+      this.draw();
+      this.darkTurn = !this.darkTurn;
+      this.display.showLegals(this);
+      this.gameHistory += this.humanForm(move).join("");
+      console.log(this.gameHistory);
+      this.display.highlightLastSquare(this);
+      this.updateGameTable();
+      this.updateOpeningLabel();
+      this.freeTiles -= 1;
+      this.thinking = false;
+    }
+    this.handleTurn();
+  }
+
+  processHumanMove() {
+    // processes human input (clicking on the board)
+    // and inputs the corresponding move, updating
+    // various game attributes accordingly
+
+    let move = this.getSquare(event);
+    this.executeMove(move);
+  }
+
+  getSquare(event) {
+    // determines which square has been clicked
+    // given the coordinates of a mouseclick on
+    // the board
+
+    const bound = this.display.canvas.getBoundingClientRect();
+    var x = event.clientX - bound.left;
+    var y = event.clientY - bound.top;
+    var cellX = Math.floor(x / this.display.colWidth),
+      cellY = Math.floor(y / this.display.rowHeight);
+    return [cellY, cellX];
+  }
+
+  handlegameEnd() {
+    // determines the winner at the end of
+    // the game and triggers the post-game
+    // popup window
+
+    var [dark, light] = this.countTokens(this.board);
+    console.log("dark", dark);
+    console.log("light", light);
+    var prefix;
+    if (dark > light) {
+      prefix = "Dark Won ";
+    } else if (light > dark) {
+      prefix = "Light Won ";
+    } else {
+      prefix = "Draw: ";
+    }
+    let scoreline = prefix + dark + " - " + light;
+    let scoreLabel = document.getElementById("gameReport");
+    scoreLabel.innerText = scoreline;
+    $("#postGameModal").modal("show");
+    this.analyseGame(3);
+  }
+
+  analyseGame(depth) {
+    // analyses the game just played and constructs
+    // an analysis in memory
+
+    var analyst = new Analyst(this.board.rows, this.gameHistory);
+    var evaluations = analyst.gradePositions(depth);
+    var self = this;
+    evaluations.then(function(results) {
+      var tableData = analyst.constructAnalysisTable(results);
+      var humanisedTableData = [];
+      for (var row of tableData) {
+        try {
+          row[3] = self.humanForm(row[3]).join("");
+        } catch {
+          row[3] = "N/A";
         }
+        humanisedTableData.push(row);
+      }
+      self.populteAnalysisTable(humanisedTableData);
+    });
+  }
 
+  populteAnalysisTable(tableData) {
+    // populates an HTML table with the contents
+    // of a precontructed analysis table
+
+    var table = document.getElementById("analysisTable");
+    for (let rowData of tableData) {
+      var row = table.insertRow();
+      for (let cellData of rowData) {
+        var cell = row.insertCell();
+        cell.innerHTML = cellData;
+      }
     }
-
-
-    processCompMove(player) {
-        let fieldCopy = JSON.parse(JSON.stringify(this.board.field))
-        // let result = player(fieldCopy, 14, -Infinity, Infinity, 1, this.turnToken(), this.freeTiles)
-        let result = player(fieldCopy, 3, this.turnToken(), true)
-        console.log(player, "result", result)
-        let value = result.value, move = result.move
-        if (this.insertToken(move, this.board.field)) {
-            this.flipTokens(this.board.field, move.reverse())
-            this.display.ctx.clearRect(0, 0, reversi.display.canvas.width, reversi.display.canvas.height)
-            this.draw()
-            this.blackTurn = !(this.blackTurn)
-            this.display.showLegals(this)
-        }
-        this.handleTurn()
-    }
-
-
-    processMove() {
-        const bound = reversi.display.canvas.getBoundingClientRect()
-        var x = event.clientX - bound.left
-        var y = event.clientY - bound.top
-        var cellX = Math.floor(x/reversi.display.colWidth),
-        cellY = Math.floor(y/reversi.display.rowHeight)
-        console.log(Reversi.humanForm([cellX, cellY]))
-        if (reversi.insertToken([cellX,cellY], reversi.board.field)) {
-            reversi.flipTokens(reversi.board.field, [cellX, cellY])
-            // console.log(reversi.board.field)
-            reversi.display.ctx.clearRect(0, 0, reversi.display.canvas.width, reversi.display.canvas.height)
-            reversi.draw()
-            reversi.blackTurn = !(reversi.blackTurn)
-            reversi.display.showLegals(reversi)
-        }
-        reversi.handleTurn()
-    }
-
-    // getMove() {
-    //     if (this.gameEnded()) {
-    //         this.gameRunning = false
-    //         this.handlegameEnd()
-    //     } else {
-    //         if (!this.findLegalMoves(this.board)) {
-    //             this.missedTurns++
-    //             console.log("missed")
-    //             this.blackTurn = !this.blackTurn
-    //             getMove()
-    //         } else {
-    //             document.getElementById("myCanvas").addEventListener("mousedown", this.processMove)
-
-    //         }
-    //     }
-    // }
-
-    handlegameEnd() {
-        var [black, red] = this.countTokens(this.board)
-        console.log("black", black)
-        console.log("red", red) 
-    }
-
-    static humanForm(cell) {
-        var col = String.fromCharCode(cell[0]+97)
-        var row = reversi.board.rows-cell[1]
-        return [col, row]
-    }
+  }
 }
-
-
-reversi = new Reversi(4)
-reversi.draw()
-reversi.display.showLegals(reversi)
-reversi.handleTurn()
-// reversi.mainLoop()
